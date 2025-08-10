@@ -1,0 +1,228 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Mini Snake</title>
+<style>
+  :root { --bg:#0d1117; --board:#111827; --snake:#22c55e; --food:#ef4444; --grid:#1f2937; --text:#e5e7eb; --accent:#2563eb; }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    min-height: 100vh;
+    display: grid;
+    place-items: center;
+    background: radial-gradient(1200px 600px at 50% -100px, #111827, var(--bg));
+    color: var(--text);
+    font-family: system-ui, sans-serif;
+  }
+  .wrap { display: grid; gap: .75rem; justify-items: center; padding: 1rem; }
+  h1 { margin: 0; font-size: 1.1rem; font-weight: 700; letter-spacing: .02em; }
+  .hud { display:flex; gap: .75rem; align-items:center; flex-wrap: wrap; justify-content: center; }
+  .pill { padding:.25rem .6rem; border:1px solid #263241; border-radius:999px; background:rgba(255,255,255,.03) }
+  canvas {
+    background: var(--board);
+    border: 1px solid #243042;
+    border-radius: .5rem;
+    image-rendering: pixelated;
+    touch-action: none;
+  }
+  .row { display:flex; gap:.5rem; flex-wrap: wrap; justify-content: center; }
+  button {
+    cursor: pointer;
+    border: 1px solid #253042;
+    background: linear-gradient(#0f172a, #0b1222);
+    color: var(--text);
+    padding: .5rem .8rem;
+    border-radius: .5rem;
+    font-weight: 600;
+  }
+  button:hover { border-color: var(--accent); }
+  .hint { opacity:.7; font-size:.85rem; text-align:center; }
+  .donate-btn {
+    display:inline-block;
+    padding:.6rem 1rem;
+    border-radius:.5rem;
+    border:1px solid #253042;
+    background:linear-gradient(#1d4ed8, #1e3a8a);
+    color:#fff;
+    font-weight:700;
+    text-decoration:none;
+  }
+  .donate-btn:hover { background:linear-gradient(#2563eb, #1e40af); }
+</style>
+</head>
+<body>
+  <div class="wrap">
+    <h1>Mini Snake</h1>
+    <div class="hud">
+      <div class="pill">Score: <span id="score">0</span></div>
+      <div class="pill">Best: <span id="best">0</span></div>
+      <div class="pill">Speed: <span id="speed">8</span> fps</div>
+    </div>
+    <canvas id="game" width="400" height="400"></canvas>
+    <div class="row">
+      <button id="btn-slower">–</button>
+      <button id="btn-restart">Restart</button>
+      <button id="btn-faster">+</button>
+    </div>
+    <div class="hint">Arrow keys/WASD to move. P to pause. Enter to restart.</div>
+
+    <!-- Stripe Donate Button -->
+    <a class="donate-btn" href="https://donate.stripe.com/test_3cI8wI7PUgEL0FL6yl7Re00" target="_blank" rel="noopener">
+      ❤️ Donate
+    </a>
+  </div>
+
+<script>
+(() => {
+  const canvas = document.getElementById('game');
+  const ctx = canvas.getContext('2d');
+  const scoreEl = document.getElementById('score');
+  const bestEl  = document.getElementById('best');
+  const speedEl = document.getElementById('speed');
+  const btnRestart = document.getElementById('btn-restart');
+  const btnFaster  = document.getElementById('btn-faster');
+  const btnSlower  = document.getElementById('btn-slower');
+
+  const size = 20;
+  const tiles = canvas.width / size;
+  let speed = 8;
+  let paused = false;
+  let gameOver = false;
+
+  const C = {
+    grid: getComputedStyle(document.documentElement).getPropertyValue('--grid').trim() || '#1f2937',
+    snake: getComputedStyle(document.documentElement).getPropertyValue('--snake').trim() || '#22c55e',
+    food: getComputedStyle(document.documentElement).getPropertyValue('--food').trim() || '#ef4444'
+  };
+
+  let snake, dir, nextDir, food, score, best, tAccum, last;
+
+  function randInt(n){ return Math.floor(Math.random() * n); }
+
+  function placeFood() {
+    while (true) {
+      const f = { x: randInt(tiles), y: randInt(tiles) };
+      if (!snake.some(s => s.x === f.x && s.y === f.y)) return f;
+    }
+  }
+
+  function reset() {
+    snake = [{x:10,y:10},{x:9,y:10},{x:8,y:10}];
+    dir = {x:1,y:0};
+    nextDir = {x:1,y:0};
+    food = placeFood();
+    score = 0;
+    scoreEl.textContent = score;
+    tAccum = 0;
+    last = performance.now();
+    gameOver = false;
+    paused = false;
+  }
+
+  function drawGrid(){
+    ctx.beginPath();
+    for (let i=1;i<tiles;i++){
+      ctx.moveTo(i*size,0); ctx.lineTo(i*size,canvas.height);
+      ctx.moveTo(0,i*size); ctx.lineTo(canvas.width,i*size);
+    }
+    ctx.strokeStyle = C.grid; ctx.stroke();
+  }
+
+  function draw() {
+    ctx.fillStyle = '#0f1623';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    drawGrid();
+    ctx.fillStyle = C.food;
+    ctx.fillRect(food.x*size, food.y*size, size, size);
+    ctx.fillStyle = C.snake;
+    for (const s of snake) ctx.fillRect(s.x*size, s.y*size, size, size);
+    if (gameOver) overlay('Game Over — Enter to Restart');
+    else if (paused) overlay('Paused — Press P to Resume');
+  }
+
+  function overlay(text){
+    ctx.fillStyle = 'rgba(0,0,0,0.5)';
+    ctx.fillRect(0,0,canvas.width,canvas.height);
+    ctx.fillStyle = '#e5e7eb';
+    ctx.font = 'bold 22px sans-serif';
+    ctx.textAlign = 'center';
+    ctx.fillText(text, canvas.width/2, canvas.height/2);
+  }
+
+  function step() {
+    if (paused || gameOver) return;
+    dir = nextDir;
+    const head = { x: snake[0].x + dir.x, y: snake[0].y + dir.y };
+    head.x = (head.x + tiles) % tiles;
+    head.y = (head.y + tiles) % tiles;
+    if (snake.some((s, i) => i>0 && s.x === head.x && s.y === head.y)) {
+      gameOver = true;
+      const prevBest = Number(localStorage.getItem('mini-snake-best') || 0);
+      best = Math.max(prevBest, score);
+      localStorage.setItem('mini-snake-best', best);
+      bestEl.textContent = best;
+      draw(); return;
+    }
+    snake.unshift(head);
+    if (head.x === food.x && head.y === food.y) {
+      score++; scoreEl.textContent = score; food = placeFood();
+      if (score % 5 === 0 && speed < 14) changeSpeed(1);
+    } else { snake.pop(); }
+  }
+
+  function changeSpeed(delta){
+    speed = Math.max(4, Math.min(20, speed + delta));
+    speedEl.textContent = speed;
+  }
+
+  window.addEventListener('keydown', (e) => {
+    const k = e.key.toLowerCase();
+    if (k === 'arrowup' || k === 'w')    { if (dir.y !== 1)  nextDir = {x:0,y:-1}; }
+    else if (k === 'arrowdown' || k === 's'){ if (dir.y !== -1) nextDir = {x:0,y:1}; }
+    else if (k === 'arrowleft' || k === 'a'){ if (dir.x !== 1)  nextDir = {x:-1,y:0}; }
+    else if (k === 'arrowright' || k === 'd'){ if (dir.x !== -1) nextDir = {x:1,y:0}; }
+    else if (k === 'p'){ paused = !paused; draw(); }
+    else if (k === 'enter'){ reset(); }
+  });
+
+  let touchStart = null;
+  canvas.addEventListener('touchstart', (e) => {
+    const t = e.changedTouches[0]; touchStart = {x:t.clientX, y:t.clientY};
+  }, {passive:true});
+  canvas.addEventListener('touchend', (e) => {
+    if (!touchStart) return;
+    const t = e.changedTouches[0];
+    const dx = t.clientX - touchStart.x;
+    const dy = t.clientY - touchStart.y;
+    if (Math.abs(dx) > Math.abs(dy)) {
+      if (dx > 0 && dir.x !== -1) nextDir = {x:1,y:0};
+      else if (dx < 0 && dir.x !== 1) nextDir = {x:-1,y:0};
+    } else {
+      if (dy > 0 && dir.y !== -1) nextDir = {x:0,y:1};
+      else if (dy < 0 && dir.y !== 1) nextDir = {x:0,y:-1};
+    }
+    touchStart = null;
+  }, {passive:true});
+
+  function loop(ts){
+    const now = ts;
+    window._last = window._last || now;
+    const dt = (now - window._last) / 1000;
+    window._last = now;
+    window._acc = (window._acc || 0) + dt;
+    const frame = 1 / speed;
+    while (window._acc >= frame) { step(); window._acc -= frame; }
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  best = Number(localStorage.getItem('mini-snake-best') || 0);
+  bestEl.textContent = best;
+  reset();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
